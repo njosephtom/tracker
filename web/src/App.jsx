@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { collectionGroup, doc, getDoc, getDocs } from 'firebase/firestore'
 import { onAuthStateChanged, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth'
 import { auth, db } from './firebase'
@@ -12,11 +12,10 @@ const EXAMPLE_DAY = { chrome: 17400, Code: 4000, Spotify: 2400, explorer: 900, W
 const iso = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 const hms = (s) => [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((n) => String(n).padStart(2, '0')).join(':')
 
-// icon from public/icons/<app>.png; falls back to a color dot if missing
-function AppIcon({ name, color }) {
-  const [failed, setFailed] = useState(false)
-  if (failed) return <span className="swatch" style={{ background: color }} />
-  return <img className="app-icon" src={`/icons/${name}.png`} alt="" onError={() => setFailed(true)} />
+// icon from public/icons/<app>.png; apps without one get icons/default.png
+function AppIcon({ name }) {
+  const [src, setSrc] = useState(`/icons/${name}.png`)
+  return <img className="app-icon" src={src} alt="" onError={() => setSrc('/icons/default.png')} />
 }
 
 function Pie({ apps }) {
@@ -46,7 +45,7 @@ function Pie({ apps }) {
           const pct = Math.round((s.secs / total) * 100)
           return (
             <li key={s.name}>
-              <AppIcon name={s.name} color={s.color} />
+              <AppIcon name={s.name} />
               <span>{s.name}</span>
               <span className="time">{hms(s.secs)} · {pct}%</span>
               <div className="bar-track"><span className="bar" style={{ width: `${pct}%`, background: s.color }} /></div>
@@ -67,6 +66,7 @@ export default function App() {
   const [selected, setSelected] = useState(null)
   const [apps, setApps] = useState(null)
   const [error, setError] = useState('')
+  const pickId = useRef(0) // latest click wins; older responses are ignored
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') ??
     (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
 
@@ -135,14 +135,19 @@ export default function App() {
 
   // click = query that day's doc from Firestore
   async function pick(key) {
+    const id = ++pickId.current
     setSelected(key)
     setApps(null)
+    setError('')
     try {
       const snap = await getDoc(doc(db, 'activity', machine, 'days', key))
-      if (!snap.exists()) setError(`No document at ${snap.ref.path}`)
+      if (id !== pickId.current) return
+      if (!snap.exists()) setError(`No data for ${key} on ${machine}.`)
       setApps(snap.data()?.apps ?? {})
     } catch (e) {
+      if (id !== pickId.current) return
       setError(`Could not load ${key} (${e.code ?? e.message}).`)
+      setApps({})
     }
   }
 
@@ -206,7 +211,7 @@ export default function App() {
                 <h2>{selected}</h2>
                 {apps && <span className="total">{hms(Object.values(apps).reduce((s, v) => s + v, 0))} active</span>}
               </div>
-              {apps === null ? <p className="empty">Loading…</p> : <Pie apps={apps} />}
+              {apps === null ? <p className="empty">Loading…</p> : <Pie key={selected} apps={apps} />}
             </>
           )}
         </section>
