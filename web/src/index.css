@@ -1,0 +1,45 @@
+/* palette: white-link-blue (taste-skill), type: Instrument Sans + DM Mono */
+:root {
+  --bg: #ffffff;
+  --card: #f4f4f4;
+  --text: #111111;
+  --muted: #6b6b6b;
+  --border: #e2e2e2;
+  --accent: #1a4be0;
+  --accent-soft: rgba(26, 75, 224, 0.1);
+  --danger: #c0392b;
+  color-scheme: light dark;
+  color: var(--text);
+  background: var(--bg);
+  font: 15px/1.5 'Instrument Sans', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* dark = inverse of the palette; accent lifted so blue stays readable on black */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --bg: #111111;
+    --card: #1e1e1e;
+    --text: #ffffff;
+    --muted: #9a9a9a;
+    --border: #2c2c2c;
+    --accent: #6f8cff;
+    --accent-soft: rgba(111, 140, 255, 0.15);
+  }
+}
+
+/* explicit choice from the Dark/Light button overrides the system setting */
+:root[data-theme='dark'] {
+  --bg: #111111;
+  --card: #1e1e1e;
+  --text: #ffffff;
+  --muted: #9a9a9a;
+  --border: #2c2c2c;
+  --accent: #6f8cff;
+  --accent-soft: rgba(111, 140, 255, 0.15);
+}
+
+body {
+  margin: 0;
+  min-height: 100svh;
+}
