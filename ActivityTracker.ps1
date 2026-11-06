@@ -19,7 +19,7 @@
 param(
     [ValidateSet('Track','Report','History')]
     [string]$Mode = 'Report',
-    [int]$IntervalSeconds = 60,      # Track: sampling interval
+    [int]$IntervalSeconds = 30,      # Track: sampling interval
     [int]$IdleLimitSeconds = 300,   # Track: no keyboard/mouse for this long = idle (not counted)
     [int]$Days = 7,                 # Report/History: how many days back
     [string]$OutDir = "$env:USERPROFILE\ActivityLog"
