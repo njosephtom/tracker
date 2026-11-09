@@ -19,7 +19,7 @@
 param(
     [ValidateSet('Track','Report','History')]
     [string]$Mode = 'Report',
-    [int]$IntervalSeconds = 30,      # Track: sampling interval
+    [int]$IntervalSeconds = 10,      # Track: sampling interval
     [int]$IdleLimitSeconds = 300,   # Track: no keyboard/mouse for this long = idle (not counted)
     [int]$Days = 7,                 # Report/History: how many days back
     [string]$OutDir = "$env:USERPROFILE\ActivityLog"
@@ -77,6 +77,11 @@ public static class Win32 {
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [StructLayout(LayoutKind.Sequential)] public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
     [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO p);
+    [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr h, uint flags);
+    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
     public static double IdleSeconds() {
         LASTINPUTINFO l = new LASTINPUTINFO(); l.cbSize = (uint)Marshal.SizeOf(l);
         GetLastInputInfo(ref l);
@@ -84,27 +89,61 @@ public static class Win32 {
     }
 }
 "@
-    Write-Host "Tracking started. Logging to $OutDir  (Ctrl+C to stop)" -ForegroundColor Green
+    [void][Win32]::SetProcessDPIAware()   # real pixel coords, so monitor centres map correctly on scaled displays
+    # hide the console and keep a tray icon (right-click > Exit to stop)
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -Namespace Native -Name Con -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+'@
+    [void][Native.Con]::ShowWindow([Native.Con]::GetConsoleWindow(), 0)
+    $tray = New-Object System.Windows.Forms.NotifyIcon
+    $tray.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon("$PSHOME\powershell.exe")
+    $tray.Text = "Activity tracker"
+    $tray.Visible = $true
+    $menu = New-Object System.Windows.Forms.ContextMenuStrip
+    [void]$menu.Items.Add('Exit', $null, { $tray.Visible = $false; $tray.Dispose(); [Environment]::Exit(0) })
+    $tray.ContextMenuStrip = $menu
+
+    # pump tray messages while waiting for the next sample
+    $next = (Get-Date).AddSeconds($IntervalSeconds)
     while ($true) {
-        Start-Sleep -Seconds $IntervalSeconds
+        [System.Windows.Forms.Application]::DoEvents()
+        Start-Sleep -Milliseconds 200
+        if ((Get-Date) -lt $next) { continue }
+        $next = (Get-Date).AddSeconds($IntervalSeconds)
 
         if ([Win32]::IdleSeconds() -gt $IdleLimitSeconds) { continue }
 
-        $h = [Win32]::GetForegroundWindow()
-        if ($h -eq [IntPtr]::Zero) { continue }
-        $procId = 0
-        [void][Win32]::GetWindowThreadProcessId($h, [ref]$procId)
-        $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
-        if (-not $p) { continue }
-
+        # one row per monitor: the top-level window under each screen's centre
+        # ponytail: samples the centre pixel only; a small window off-centre on a monitor is missed
         $now = Get-Date
-        [pscustomobject]@{
-            Date    = $now.ToString('yyyy-MM-dd')
-            Time    = $now.ToString('HH:mm:ss')
-            App     = $p.ProcessName
-            Seconds = $IntervalSeconds
-        } | Export-Csv -Path (Join-Path $OutDir "usage_$($now.ToString('yyyy-MM-dd')).csv") `
-                       -Append -NoTypeInformation -Encoding UTF8
+        $fg = [Win32]::GetForegroundWindow()
+        $mon = 0
+        foreach ($s in [System.Windows.Forms.Screen]::AllScreens) {
+            $mon++
+            $pt = New-Object Win32+POINT
+            $pt.X = $s.Bounds.X + [int]($s.Bounds.Width / 2)
+            $pt.Y = $s.Bounds.Y + [int]($s.Bounds.Height / 2)
+            $h = [Win32]::GetAncestor([Win32]::WindowFromPoint($pt), 2)   # 2 = GA_ROOT
+            # minimized windows can't be focused, so this also covers "not focused and minimized"
+            # ponytail: skips the row before CSV; Firebase is built from the CSV so it skips too
+            if ($h -eq [IntPtr]::Zero -or [Win32]::IsIconic($h)) { continue }
+            $procId = 0
+            [void][Win32]::GetWindowThreadProcessId($h, [ref]$procId)
+            $p = Get-Process -Id $procId -ErrorAction SilentlyContinue
+            if (-not $p) { continue }
+
+            [pscustomobject]@{
+                Date    = $now.ToString('yyyy-MM-dd')
+                Time    = $now.ToString('HH:mm:ss')
+                App     = $p.ProcessName
+                Seconds = $IntervalSeconds
+                Monitor = $mon
+                Focused = ($h -eq $fg)
+            } | Export-Csv -Path (Join-Path $OutDir "usage_$($now.ToString('yyyy-MM-dd')).csv") `
+                           -Append -NoTypeInformation -Encoding UTF8
+        }
         try { Send-Day $now.ToString('yyyy-MM-dd') } catch { Write-Warning "Firebase: $_" }
     }
 }
@@ -127,7 +166,9 @@ function Show-Report {
     } | Sort-Object Date, @{Expression='TotalSeconds';Descending=$true}
 
     foreach ($d in $summary | Group-Object Date) {
-        $total = [timespan]::FromSeconds(($d.Group | Measure-Object TotalSeconds -Sum).Sum)
+        # active time counts each sample once, not once per monitor
+        $samples = $rows | Where-Object Date -eq $d.Name | Group-Object Time | ForEach-Object { [int]$_.Group[0].Seconds }
+        $total = [timespan]::FromSeconds(($samples | Measure-Object -Sum).Sum)
         Write-Host "`n=== $($d.Name)   (active: $($total.ToString('hh\:mm\:ss'))) ===" -ForegroundColor Cyan
         $d.Group | Format-Table App, TimeUsed -AutoSize
     }
