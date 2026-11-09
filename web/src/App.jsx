@@ -12,10 +12,10 @@ const EXAMPLE_DAY = { chrome: 17400, Code: 4000, Spotify: 2400, explorer: 900, W
 const iso = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 const hms = (s) => [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((n) => String(n).padStart(2, '0')).join(':')
 
-// icon from public/icons/<app>.png; apps without one get icons/default.png
+// icon from public/icons/<app>.png, then <app>.svg; apps without either get icons/default.png
 function AppIcon({ name }) {
   const [src, setSrc] = useState(`/icons/${name}.png`)
-  return <img className="app-icon" src={src} alt="" onError={() => setSrc('/icons/default.png')} />
+  return <img className="app-icon" src={src} alt="" onError={() => setSrc((s) => (s.endsWith('.png') ? `/icons/${name}.svg` : '/icons/default.png'))} />
 }
 
 function Pie({ apps }) {
