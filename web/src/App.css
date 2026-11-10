@@ -102,6 +102,10 @@ button:hover:not(:disabled), select:hover { border-color: var(--accent); }
 .total { color: var(--muted); font-size: 14px; }
 .empty { color: var(--muted); }
 
+.last-used { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.last-used .label { color: var(--muted); font-size: 13px; }
+.last-used .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border, #ccc); border-radius: 999px; font-size: 13px; }
+
 .pie { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
 .pie svg { width: 200px; height: 200px; flex-shrink: 0; }
 .pie ul { list-style: none; padding: 0; margin: 0; flex: 1 1 200px; }

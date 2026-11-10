@@ -12,6 +12,19 @@ const EXAMPLE_DAY = { chrome: 17400, Code: 4000, Spotify: 2400, explorer: 900, W
 const iso = (y, m, d) => `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 const hms = (s) => [Math.floor(s / 3600), Math.floor((s % 3600) / 60), s % 60].map((n) => String(n).padStart(2, '0')).join(':')
 
+// apps for one machine, most recent day first; each app listed once with the date it was last used
+// ponytail: scans in memory (day docs already loaded at sign-in), no extra reads; fine until thousands of days
+function lastUsedApps(days, machine, limit = 3) {
+  const seen = new Map()
+  const mine = days.filter((d) => d.machine === machine).sort((a, b) => b.date.localeCompare(a.date))
+  for (const d of mine) {
+    for (const [name] of Object.entries(d.apps).sort((a, b) => b[1] - a[1])) {
+      if (!seen.has(name)) seen.set(name, d.date)
+    }
+  }
+  return [...seen].slice(0, limit)
+}
+
 // icon from public/icons/<app>.png, then <app>.svg; apps without either get icons/default.png
 function AppIcon({ name }) {
   const [src, setSrc] = useState(`/icons/${name}.png`)
@@ -62,6 +75,7 @@ export default function App() {
   const [machines, setMachines] = useState([])
   const [machine, setMachine] = useState(() => localStorage.getItem('machine') ?? '')
   const [have, setHave] = useState(new Set()) // "machine/date" keys that have data
+  const [days, setDays] = useState([]) // every loaded day: { machine, date, apps }
   const [month, setMonth] = useState(() => new Date())
   const [selected, setSelected] = useState(null)
   const [apps, setApps] = useState(null)
@@ -85,6 +99,7 @@ export default function App() {
         const names = [...new Set(snap.docs.map((d) => d.ref.parent.parent.id))].sort()
         setMachines(names)
         setHave(new Set(snap.docs.map((d) => `${d.ref.parent.parent.id}/${d.id}`)))
+        setDays(snap.docs.map((d) => ({ machine: d.ref.parent.parent.id, date: d.id, apps: d.data().apps ?? {} })))
         setMachine((cur) => (names.includes(cur) ? cur : names[0] ?? ''))
       })
       .catch((e) => setError(`Could not load data (${e.code ?? e.message}). Check Firestore read rules.`))
@@ -210,6 +225,14 @@ export default function App() {
               <div className="detail-head">
                 <h2>{selected}</h2>
                 {apps && <span className="total">{hms(Object.values(apps).reduce((s, v) => s + v, 0))} active</span>}
+              </div>
+              <div className="last-used">
+                <span className="label">Last used:</span>
+                {lastUsedApps(days, machine).map(([name, date]) => (
+                  <span key={name} className="chip" title={`last used ${date}`}>
+                    <AppIcon name={name} />{name}
+                  </span>
+                ))}
               </div>
               {apps === null ? <p className="empty">Loading…</p> : <Pie key={selected} apps={apps} />}
             </>
